@@ -105,31 +105,31 @@ def extract_reasoning_action(solution_str, use_protocol: bool = False):
     E.g., <thinking>\n...\n</thinking>\n<action>\n...\n</action>
     """
     if solution_str is None:
-        return None, None
+        return 'Solution not found', None, None
         
     reasoning_action = REASON_ACTION_PATTERN.fullmatch(solution_str)
     if reasoning_action is None:
-        return None, None
+        return 'Solution format error - Regex error', None, None
     reasoning = reasoning_action.group(1)
     action_str = reasoning_action.group(2)
 
     if reasoning.count('"action"') != 0 or action_str.count('"action"') != 1:
-        return None, None
+        return 'Solution format error - Action field error', None, None
 
     if use_protocol:
         protocol = detect_protocol(reasoning)
         if protocol is None:
-            return None, None
+            return 'Solution format error - Protocol error', None, None
 
     try:
         action = ast.literal_eval(action_str)
         # Ensure action is a dictionary
         if not isinstance(action, dict):
-            return reasoning, None
+            return 'Solution format error - Action JSON error', None, None
     except Exception:
-        return reasoning, None
+        return 'Solution format error - Action JSON error', None, None
 
-    return reasoning, action
+    return None, reasoning, action
 
 def get_swipe_direction(start: list[int], end: list[int]):
     """
@@ -220,23 +220,26 @@ def match_action_params(action_pred, action_gt, reward_attr):
 
 def compute_score(data_source, solution_str, ground_truth, extra_info=None):
     # 
-    reasoning_pred, action_pred = extract_reasoning_action(solution_str, use_protocol=True)
-    reasoning_gt, action_gt = extract_reasoning_action(ground_truth)
+    exception, reasoning_pred, action_pred = extract_reasoning_action(solution_str, use_protocol=True)
+    _, reasoning_gt, action_gt = extract_reasoning_action(ground_truth)
 
     # Format reward
+    
     format_reward  = 1.0 if action_pred is not None and action_gt is not None else 0.0
+
+    print(f"format_reward: {format_reward} | action_pred: {action_pred or solution_str} | action_gt: {action_gt}" + (f" | exception: {exception}" if exception else ""))
     type_reward = 0.0
     act_params_reward = 0.0
     # Action type reward: The action type reward is computed by comparing the predicted action type T′ with the ground truth action type T . It assigns a reward of 1 if T′ = T and 0 otherwise
     if format_reward == 1.0:
         type_reward = 1.0 if action_pred.get('action', '1') == action_gt.get('action', '2') else 0.0
-
+        print(f"type_reward: {type_reward} | action_pred: {action_pred} | action_gt: {action_gt}")
         if type_reward == 1.0:
             # Check if reward_attr exists in extra_info
             reward_attr = extra_info.get('reward_attr', {}) if extra_info else {}
-            
+            print(f"reward_attr: {reward_attr}")
             act_params_reward = match_action_params(action_pred, action_gt, reward_attr)
-
+            print(f"act_params_reward: {act_params_reward} | action_pred: {action_pred} | action_gt: {action_gt}")
     total_reward = format_reward + type_reward + act_params_reward
     
     if total_reward == 0:
